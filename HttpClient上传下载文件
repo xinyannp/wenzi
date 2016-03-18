@@ -1,0 +1,209 @@
+---
+title: HttpClient上传下载文件 
+tags: java,HttpClient
+grammar_cjkRuby: true
+---
+### Maven依赖
+```xml
+<dependency>
+	<groupId>org.apache.httpcomponents</groupId>
+	<artifactId>httpclient</artifactId>
+	<version>4.5.1</version>
+</dependency>
+<dependency>
+	<groupId>org.apache.httpcomponents</groupId>
+	<artifactId>httpmime</artifactId>
+	<version>4.5.1</version>
+</dependency>
+<dependency>
+	<groupId>eu.medsea.mimeutil</groupId>
+	<artifactId>mime-util</artifactId>
+	<version>2.1.3</version>
+</dependency>
+<dependency>
+	<groupId>javax</groupId>
+	<artifactId>javaee-api</artifactId>
+	<version>7.0</version>
+</dependency>
+```
+### 上传文件
+```java
+/**
+ * 上传文件
+ * 
+ * @param url
+ *            上传路径
+ * @param file
+ *            文件路径
+ * @param stringBody
+ *            附带的文本信息
+ * @return 响应结果
+ */
+public static String upload(String url, String file, String stringBody) {
+	String result = "";
+	CloseableHttpClient httpclient = null;
+	CloseableHttpResponse response = null;
+	HttpEntity resEntity = null;
+	try {
+		httpclient = buildHttpClient();
+		HttpPost httppost = new HttpPost(url);
+		// 把文件转换成流对象FileBody
+		FileBody bin = new FileBody(new File(file));
+		StringBody comment = new StringBody(stringBody, ContentType.create(
+				"text/plain", Consts.UTF_8));
+		// 以浏览器兼容模式运行，防止文件名乱码。
+		HttpEntity reqEntity = MultipartEntityBuilder.create()
+				.setMode(HttpMultipartMode.BROWSER_COMPATIBLE)
+				.addPart("bin", bin).addPart("comment", comment)
+				.setCharset(Consts.UTF_8).build();
+		httppost.setEntity(reqEntity);
+		log.info("executing request " + httppost.getRequestLine());
+		response = httpclient.execute(httppost);
+		log.info(response.getStatusLine());
+		resEntity = response.getEntity();
+		if (resEntity != null) {
+			log.info("Response content length: "
+					+ resEntity.getContentLength());
+			result = EntityUtils.toString(resEntity, Consts.UTF_8);
+		}
+	} catch (Exception e) {
+		log.error("executing request " + url + " occursing some error.");
+		log.error(e);
+	} finally {
+		try {
+			EntityUtils.consume(resEntity);
+			response.close();
+			httpclient.close();
+		} catch (IOException e) {
+			log.error(e);
+		}
+	}
+	return result;
+}
+```
+### 下载文件
+```java
+/**
+ * 下载文件
+ * @param url 下载url
+ * @param fileName 保存的文件名（可以为null）
+ */
+public static void download(String url, String fileName) {
+	String path = "G:/download/";
+	CloseableHttpClient httpclient = null;
+	CloseableHttpResponse response = null;
+	HttpEntity entity = null;
+	try {
+		httpclient = buildHttpClient();
+		HttpGet httpget = new HttpGet(url);
+		response = httpclient.execute(httpget);
+		entity = response.getEntity();
+		// 下载
+		if (entity.isStreaming()) {
+			String destFileName = "data";
+			if (!isBlank(fileName)) {
+				destFileName = fileName;
+			} else if (response.containsHeader("Content-Disposition")) {
+				String dstStr = response.getLastHeader(
+						"Content-Disposition").getValue();
+				dstStr = decodeHeader(dstStr);
+				//使用正则截取
+				Pattern p = Pattern.compile("filename=\"?(.+?)\"?$");
+				Matcher m = p.matcher(dstStr);
+				if (m.find()) {
+					destFileName = m.group(1);
+				}
+			} else {
+				destFileName = url.substring(url.lastIndexOf("/") + 1);
+			}
+			log.info("downloading file: " + destFileName);
+			FileOutputStream fos = null;
+			try {
+				fos = new FileOutputStream(path + destFileName);
+				entity.writeTo(fos);
+			} finally {
+				fos.close();
+			}
+			log.info("download complete");
+		} else {
+			log.error("Not Found");
+			log.info(EntityUtils.toString(entity));
+		}
+	} catch (Exception e) {
+		log.error("downloading file from " + url + " occursing some error.");
+		log.error(e);
+	} finally {
+		try {
+			EntityUtils.consume(entity);
+			response.close();
+			httpclient.close();
+		} catch (IOException e) {
+			log.error(e);
+		}
+	}
+}
+```
+### 可信任的SSL的HttpClient构建方法
+```java
+/**
+ * 构建可信任的https的HttpClient
+ * 
+ * @return
+ * @throws Exception
+ */
+public static CloseableHttpClient buildHttpClient() throws Exception {
+	SSLContext sslContext = new SSLContextBuilder().loadTrustMaterial(null,
+			new TrustStrategy() {
+				@Override
+				public boolean isTrusted(X509Certificate[] arg0, String arg1)
+						throws CertificateException {
+					return true;
+				}
+			}).build();
+	SSLConnectionSocketFactory sslSocketFactory = new SSLConnectionSocketFactory(
+			sslContext, new NoopHostnameVerifier());
+	Registry<ConnectionSocketFactory> socketFactoryRegistry = RegistryBuilder
+			.<ConnectionSocketFactory> create()
+			.register("http",
+					PlainConnectionSocketFactory.getSocketFactory())
+			.register("https", sslSocketFactory).build();
+	PoolingHttpClientConnectionManager connectionManager = new PoolingHttpClientConnectionManager(
+			socketFactoryRegistry);
+	// set longer timeout value
+	RequestConfig requestConfig = RequestConfig.custom()
+			.setSocketTimeout(DEFAULT_TIMEOUT)
+			.setConnectTimeout(DEFAULT_TIMEOUT)
+			.setConnectionRequestTimeout(DEFAULT_TIMEOUT).build();
+	CloseableHttpClient httpclient = HttpClients.custom()
+			.setSSLContext(sslContext)
+			.setConnectionManager(connectionManager)
+			.setDefaultRequestConfig(requestConfig).build();
+	return httpclient;
+}
+```
+### 辅助方法
+```java
+// 判断字符串是否为空
+private static boolean isBlank(String str) {
+	int strLen;
+	if (str == null || (strLen = str.length()) == 0) {
+		return true;
+	}
+	for (int i = 0; i < strLen; i++) {
+		if ((Character.isWhitespace(str.charAt(i)) == false)) {
+			return false;
+		}
+	}
+	return true;
+}
+// 将header信息按照
+// 1,iso-8859-1转utf-8;2,URLDecoder.decode;3,MimeUtility.decodeText;
+// 做处理，处理后的string就为编码正确的header信息（包括中文等）
+private static String decodeHeader(String header)
+		throws UnsupportedEncodingException {
+	return MimeUtility.decodeText(URLDecoder.decode(
+			new String(header.getBytes(Consts.ISO_8859_1), Consts.UTF_8),
+			UTF_8));
+}
+```
+><http://stackoverflow.com/questions/10960409/how-do-i-save-a-file-downloaded-with-httpclient-into-a-specific-folder>
