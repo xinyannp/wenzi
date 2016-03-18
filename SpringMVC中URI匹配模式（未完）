@@ -1,0 +1,30 @@
+---
+title: SpringMVC中URI匹配模式（未完）
+tags: java,SpringMVC
+grammar_cjkRuby: true
+---
+
+ 1. ### URI模板模式（URI Template Patterns）
+ 2. ### 使用正则表达式的URI模板模式
+
+有时你在定义URI模板参数需要更精确。比如URL`"/spring-web/spring-web-3.0.5.jar"`。你怎么将它分割成几个部分呢？
+`@RequestMapping`注解支持在URI模板参数中使用正则表达式。语法是`{varName:regex}`，第一部分定义参数名称，而第二部分-正则表达式。示例：
+```java
+@RequestMapping("/spring-web/{symbolicName:[a-z-]+}-{version:\\d\\.\\d\\.\\d}{extension:\\.[a-z]+}")
+    public void handle(@PathVariable String version, @PathVariable String extension) {
+        // ...
+    }
+}
+```
+
+ 3. ### 路径模式（Path Patterns）
+ 4. ### 路径比较模式（Path Pattern Comparison）
+ 5. ### 带占位符的路径模式
+ 6. ### 后缀模式匹配
+ 7. ### 后缀匹配模式和响应文件下载（RFD）
+ 8. ### 矩阵参数（Matrix Variables）
+ 9. ### 消费媒体类型（Consumable Media Type）
+ 10. ### 生产媒体类型（Producible Media Type）
+ 11. ### 请求参数和请求头的值
+
+>http://docs.spring.io/spring/docs/current/spring-framework-reference/htmlsingle/#mvc-ann-requestmapping-uri-templates
