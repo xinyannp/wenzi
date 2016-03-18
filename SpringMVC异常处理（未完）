@@ -1,0 +1,331 @@
+---
+title: SpringMVC异常处理（未完）
+tags: java,SpringMVC
+grammar_cjkRuby: true
+---
+
+## 控制器异常处理
+
+### 自定义异常
+```java?linenums
+/**
+ * No handler is needed for this exception since it is annotated with
+ * <tt>@ResponseStatus</tt>.
+ * 
+ * @return Nothing - it always throws the exception.
+ * @throws OrderNotFoundException
+ *             Always thrown.
+ */
+@RequestMapping("/orderNotFound")
+String throwOrderNotFoundException() {
+	logger.info("Throw OrderNotFoundException for unknown order 12345");
+	throw new OrderNotFoundException("12345");
+}
+```
+在异常类上使用`@ResponseStatus`注解
+```java?linenums
+/**
+ * An example of an application-specific exception. Defined here for convenience
+ * as we don't have a real domain model or its associated business logic.
+ */
+@ResponseStatus(value = HttpStatus.NOT_FOUND, reason = "No such order")
+public class OrderNotFoundException extends RuntimeException {
+
+	/**
+	 * Unique ID for Serialized object
+	 */
+	private static final long serialVersionUID = -8790211652911971729L;
+
+	public OrderNotFoundException(String orderId) {
+		super(orderId + " not found");
+	}
+}
+```
+
+### 其他异常
+1. #### 使用`@ExceptionHandler`
+
+```java?linenums
+/**
+ * Throws an unannotated <tt>DataIntegrityViolationException</tt>. Must be
+ * caught by an exception handler.
+ * 
+ * @return Nothing - it always throws the exception.
+ * @throws DataIntegrityViolationException
+ *             Always thrown.
+ */
+@RequestMapping("/dataIntegrityViolation")
+String throwDataIntegrityViolationException() throws SQLException {
+	logger.info("Throw DataIntegrityViolationException");
+	throw new DataIntegrityViolationException("Duplicate id");
+}
+```
+在`Controller`中使用`@ExceptionHandler`定义异常处理器，并使用`@ResponseStatus`将一个预定义的异常转为HTTP状态码
+```java?linenums
+/**
+ * Convert a predefined exception to an HTTP Status code
+ */
+@ResponseStatus(value = HttpStatus.CONFLICT, reason = "Data integrity violation")
+// 409
+@ExceptionHandler(DataIntegrityViolationException.class)
+public void conflict() {
+	logger.error("Request raised a DataIntegrityViolationException");
+	// Nothing to do
+}
+```
+`@ExceptionHandler`可以同时处理多个异常类，并且可以指定一个视图用于显示错误信息。
+```java?linenums
+/**
+ * Convert a predefined exception to an HTTP Status code and specify the
+ * name of a specific view that will be used to display the error.
+ * 
+ * @return Exception view.
+ */
+@ExceptionHandler({ SQLException.class, DataAccessException.class })
+public String databaseError(Exception exception) {
+	// Nothing to do. Return value 'databaseError' used as logical view name
+	// of an error page, passed to view-resolver(s) in usual way.
+	logger.error("Request raised " + exception.getClass().getSimpleName());
+	return "databaseError";
+}
+```
+2. #### 使用`SimpleMappingExceptionResolver`
+
+当抛出的异常类未使用`@ResponseStatus`注解，并且没有`@ExceptionHandler`异常处理类处理时，
+可以使用Spring的`SimpleMappingExceptionResolver`Bean来处理此类异常。
+```java?linenums
+/**
+ * Simulates an illegal credit-card exception by always throwing
+ * <tt>InvalidCreditCardException</tt>. Handled by
+ * <tt>SimpleMappingExceptionResolver</tt>.
+ * 
+ * @return Nothing - it always throws the exception.
+ * @throws InvalidCreditCardException
+ *             Always thrown.
+ */
+@RequestMapping("/invalidCreditCard")
+String throwInvalidCreditCard() throws Exception {
+	logger.info("Throw InvalidCreditCardException");
+	throw new InvalidCreditCardException("1234123412341234");
+}
+
+/**
+ * Simulates a database exception by always throwing
+ * <tt>DatabaseException</tt>. Handled by
+ * <tt>SimpleMappingExceptionResolver</tt>.
+ * 
+ * @return Nothing - it always throws the exception.
+ * @throws DatabaseException
+ *             Always thrown.
+ */
+@RequestMapping("/databaseException")
+String throwDatabaseException() throws Exception {
+	logger.info("Throw InvalidCreditCardException");
+	throw new DatabaseException("Database not found: info.db");
+}
+```
+
+以注解方式使用Spring的`SimpleMappingExceptionResolver`Bean配置异常处理类
+```java?linenums
+/**
+ * Setup the classic SimpleMappingExceptionResolver. This provides useful
+ * defaults for logging and handling exceptions. It has been part of Spring
+ * MVC since Spring V2 and you will probably find most existing Spring MVC
+ * applications are using it.
+ * <p>
+ * Only invoked if the "global" profile is active.
+ * 
+ * @return The new resolver
+ */
+@Bean(name = "simpleMappingExceptionResolver")
+public SimpleMappingExceptionResolver createSimpleMappingExceptionResolver() {
+	logger.info("Creating SimpleMappingExceptionResolver");
+	SimpleMappingExceptionResolver r = new SimpleMappingExceptionResolver();
+
+	Properties mappings = new Properties();
+	mappings.setProperty("DatabaseException", "databaseException");
+	mappings.setProperty("InvalidCreditCardException", "creditCardError");
+
+	r.setExceptionMappings(mappings); // None by default
+	r.setExceptionAttribute("ex"); // Default is "exception"
+	r.setWarnLogCategory("demo1.ExceptionLogger"); // No default
+
+	/*
+	 * Normally Spring MVC has no default error view and this class is the
+	 * only way to define one. A nice feature of Spring Boot is the ability
+	 * to provide a very basic default error view (otherwise the application
+	 * server typically returns a Java stack trace which is not acceptable
+	 * in production). See Blog for more details.
+	 * 
+	 * To stick with the Spring Boot approach, DO NOT set this property of
+	 * SimpleMappingExceptionResolver.
+	 * 
+	 * Here we are choosing to use SimpleMappingExceptionResolver since many
+	 * Spring applications have used the approach since Spring V1. Normally
+	 * we would specify the view as "error" to match Spring Boot, however so
+	 * you can see what is happening, we are using a different page.
+	 */
+	r.setDefaultErrorView("defaultErrorPage");
+	return r;
+}
+```
+XML方式配置
+```xml?linenums
+<!-- Configure a classic SimpleMappingExceptionResolver. Try using the 
+	ExampleSimpleMappingExceptionResolver and see the difference when /unhandledException 
+	is invoked. -->
+<bean id="simpleMappingExceptionResolver"
+	class="org.springframework.web.servlet.handler.SimpleMappingExceptionResolver">
+	<property name="exceptionMappings">
+		<map>
+			<entry key="DatabaseException" value="databaseException" />
+			<entry key="InvalidCreditCardException" value="creditCardError" />
+		</map>
+	</property>
+	<!-- Override name of exception attribute. Default is 'exception'. -->
+	<property name="exceptionAttribute" value="ex" />
+
+	<!-- Name of logger to use to log exceptions. Unset by default, so logging 
+		disabled -->
+	<property name="warnLogCategory" value="example.MvcLogger" />
+
+	<!-- Normally Spring MVC has no default error view and this class is the 
+		only way to define one. A nice feature of Spring Boot is the ability to provide 
+		a very basic default error view (otherwise the application server typically 
+		returns a Java stack trace which is not acceptable in production). See Blog 
+		for more details. -->
+
+	<!-- To stick with the Spring Boot approach, DO NOT set this property 
+		of SimpleMappingExceptionResolver. -->
+
+	<!-- Here we are choosing to use SimpleMappingExceptionResolver since 
+		many Spring applications have used the approach since Spring V1. Normally 
+		we would specify the view as "error" to match Spring Boot, however so you 
+		can see what is happening, we are using a different page. -->
+	<property name="defaultErrorView" value="defaultErrorPage" />
+
+</bean>
+```
+3. #### 返回有用的支持信息
+
+```java?linenums&fancy=19,20,21
+/**
+ * Demonstrates how to take total control - setup a model, add useful
+ * information and return the "support" view name. This method explicitly
+ * creates and returns
+ * 
+ * @param req
+ *            Current HTTP request.
+ * @param exception
+ *            The exception thrown - always {@link SupportInfoException}.
+ * @return The model and view used by the DispatcherServlet to generate
+ *         output.
+ * @throws Exception
+ */
+@ExceptionHandler(SupportInfoException.class)
+public ModelAndView handleError(HttpServletRequest req, Exception exception)
+		throws Exception {
+
+	// Rethrow annotated exceptions or they will be processed here instead.
+	if (AnnotationUtils.findAnnotation(exception.getClass(),
+			ResponseStatus.class) != null)
+		throw exception;
+
+	logger.error("Request: " + req.getRequestURI() + " raised " + exception);
+
+	ModelAndView mav = new ModelAndView();
+	mav.addObject("exception", exception);
+	mav.addObject("url", req.getRequestURL());
+	mav.addObject("timestamp", new Date().toString());
+	mav.addObject("status", 500);
+
+	mav.setViewName("support");
+	return mav;
+}
+```
+## 全局异常处理
+使用`@ControllerAdvice`注解一个全局异常处理的`Advice`类，其效果跟使用控制器层面的异常处理一样，不过它是全局生效的。
+如果异常没有在控制器层面被处理，那么它们将在此类中处理。
+```java?linenums
+/**
+ * Performs the same exception handling as {@link ExceptionHandlingController}
+ * but offers them globally. The exceptions below could be raised by any
+ * controller and they would be handled here, if not handled in the controller
+ * already.
+ * 
+ * @author Paul Chapman
+ */
+@ControllerAdvice
+public class GlobalExceptionHandlingControllerAdvice {
+
+	protected Logger logger;
+
+	public GlobalExceptionHandlingControllerAdvice() {
+		logger = LoggerFactory.getLogger(getClass());
+	}
+
+	/* - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
+	/* . . . . . . . . . . . . . EXCEPTION HANDLERS . . . . . . . . . . . . . . */
+	/* - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
+
+	/**
+	 * Convert a predefined exception to an HTTP Status code
+	 */
+	@ResponseStatus(value = HttpStatus.CONFLICT, reason = "Data integrity violation")
+	// 409
+	@ExceptionHandler(DataIntegrityViolationException.class)
+	public void conflict() {
+		logger.error("Request raised a DataIntegrityViolationException");
+		// Nothing to do
+	}
+
+	/**
+	 * Convert a predefined exception to an HTTP Status code and specify the
+	 * name of a specific view that will be used to display the error.
+	 * 
+	 * @return Exception view.
+	 */
+	@ExceptionHandler({ SQLException.class, DataAccessException.class })
+	public String databaseError(Exception exception) {
+		// Nothing to do. Return value 'databaseError' used as logical view name
+		// of an error page, passed to view-resolver(s) in usual way.
+		logger.error("Request raised " + exception.getClass().getSimpleName());
+		return "databaseError";
+	}
+
+	/**
+	 * Demonstrates how to take total control - setup a model, add useful
+	 * information and return the "support" view name. This method explicitly
+	 * creates and returns
+	 * 
+	 * @param req
+	 *            Current HTTP request.
+	 * @param exception
+	 *            The exception thrown - always {@link SupportInfoException}.
+	 * @return The model and view used by the DispatcherServlet to generate
+	 *         output.
+	 * @throws Exception
+	 */
+	@ExceptionHandler(SupportInfoException.class)
+	public ModelAndView handleError(HttpServletRequest req, Exception exception)
+			throws Exception {
+
+		// Rethrow annotated exceptions or they will be processed here instead.
+		if (AnnotationUtils.findAnnotation(exception.getClass(),
+				ResponseStatus.class) != null)
+			throw exception;
+
+		logger.error("Request: " + req.getRequestURI() + " raised " + exception);
+
+		ModelAndView mav = new ModelAndView();
+		mav.addObject("exception", exception);
+		mav.addObject("url", req.getRequestURL());
+		mav.addObject("timestamp", new Date().toString());
+		mav.addObject("status", 500);
+
+		mav.setViewName("support");
+		return mav;
+	}
+}
+```
+## 使用`Simple Mapping Exception Resolver`
